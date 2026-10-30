@@ -7,6 +7,7 @@
 | zapret | https://github.com/bol-van/zapret |
 | zapret-discord-youtube | https://github.com/Flowseal/zapret-discord-youtube |
 | WinDivert | https://github.com/basil00/WinDivert |
+| Cygwin (cygwin1.dll) | https://www.cygwin.com/ |
 | PySide6 / Qt | https://www.qt.io/qt-for-python |
 | PyInstaller | https://pyinstaller.org/ |
 | Antigravity (визуальный референс) | https://github.com/confeden/Antigravity |
@@ -21,3 +22,4 @@ WinDivert распространяется по выбору получател�
 - Уведомление в сборке Flowseal: https://github.com/Flowseal/zapret-discord-youtube/blob/main/LICENSE.txt
 
 Для публичного пакета EXE необходимо приложить соответствующие тексты лицензий и выполнить условия распространения фактически включённой версии. Одной этой ссылки и краткого указания лицензии недостаточно, чтобы считать оформление бинарного релиза завершённым.
+

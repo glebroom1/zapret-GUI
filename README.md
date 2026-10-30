@@ -88,7 +88,8 @@ zapret-GUI позволяет управлять zapret без ручного з
 
 - [zapret](https://github.com/bol-van/zapret) — основной проект.
 - [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) — сборка, используемая в приложении.
-- [Antigravity](https://github.com/confeden/Antigravity) — визуальный референс интерфейса.
+- [WinDivert](https://github.com/basil00/WinDivert) — перехват и фильтрация трафика (WinDivert.dll и WinDivert64.sys).
+- [Cygwin](https://www.cygwin.com/) — среда выполнения (cygwin1.dll).
 - PySide6 и PyInstaller — интерфейс и упаковка приложения.
 
 Сторонние компоненты сохраняют свои лицензии. См. [сведения о компонентах](THIRD_PARTY.md).
@@ -96,3 +97,4 @@ zapret-GUI позволяет управлять zapret без ручного з
 ## 📄 Лицензия
 
 Код оболочки распространяется по [лицензии MIT](LICENSE). Сторонние компоненты сохраняют свои лицензии; MIT оболочки на них не распространяется.
+
