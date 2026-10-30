@@ -18,7 +18,7 @@ a = Analysis(
     [os.path.join(PROJECT, 'launch_qt.py')],
     pathex=[PROJECT, BUILD_DIR],
     binaries=[],
-    datas=[(ZAPRET, '_zapret')],                          # bat/bin/lists/utils целиком
+    datas=[(ZAPRET, '_zapret'), (os.path.join(PROJECT, 'assets'), 'assets')],                          # bat/bin/lists/utils целиком
     hiddenimports=['app_qt', 'qt_common', 'core', 'runtime_paths', 'zapret_info',
                    'zapret_features', 'zapret_import', 'launch_qt'],
     hookspath=[],
@@ -40,5 +40,5 @@ exe = EXE(
     upx=False,
     console=False,          # windowed: без консоли
     version=None,
-    icon=None,
+    icon=os.path.join(PROJECT, 'assets', 'app.ico'),
 )

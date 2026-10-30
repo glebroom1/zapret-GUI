@@ -22,7 +22,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
-from PySide6.QtGui import (QBrush, QColor, QFont, QPainter, QPen, QTextCursor,
+from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QPainter, QPen, QTextCursor,
                            QWheelEvent)
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
@@ -108,6 +108,7 @@ class App(QMainWindow):
     def __init__(self, data_dir=None):
         super().__init__()
         self.setWindowTitle('Zapret Desk')
+        self.setWindowIcon(QIcon(str(_rp.bundle_dir() / 'assets' / 'app.png')))
         self.resize(680, 900)
         self.setMinimumSize(640, 620)
         self.DATA = Path(data_dir) if data_dir else _rp.data_dir()
