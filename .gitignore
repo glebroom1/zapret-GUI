@@ -1,0 +1,16 @@
+.venv*/
+__pycache__/
+*.py[cod]
+*.log
+*.exe
+*.zip
+dist/
+releases/
+build/*
+!build/*.cmd
+!build/*.spec
+!build/make_zapret_info.py
+settings.json
+strategy-history.json
+.env
+.env.*
