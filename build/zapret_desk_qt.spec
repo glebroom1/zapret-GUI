@@ -9,6 +9,7 @@ BUILD_DIR = os.path.dirname(os.path.abspath(SPEC))          # ...\zapret-gui\bui
 PROJECT = os.path.dirname(BUILD_DIR)                        # ...\zapret-gui
 ZAPRET = os.path.join(os.path.dirname(PROJECT),             # ...\vs code\zapret-discord-youtube-1.10.4
                       'zapret-discord-youtube-1.10.4')
+ZAPRET = os.environ.get('ZAPRET_SOURCE', ZAPRET)
 NAME = 'ZapretDeskQt'
 
 if not os.path.isfile(os.path.join(ZAPRET, 'bin', 'winws.exe')):
@@ -18,7 +19,7 @@ a = Analysis(
     [os.path.join(PROJECT, 'launch_qt.py')],
     pathex=[PROJECT, BUILD_DIR],
     binaries=[],
-    datas=[(ZAPRET, '_zapret'), (os.path.join(PROJECT, 'assets'), 'assets')],                          # bat/bin/lists/utils целиком
+    datas=[(ZAPRET, '_zapret'), (os.path.join(PROJECT, 'assets'), 'assets'), (os.path.join(PROJECT, 'licenses'), 'licenses')],                          # bat/bin/lists/utils целиком
     hiddenimports=['app_qt', 'qt_common', 'core', 'runtime_paths', 'zapret_info',
                    'zapret_features', 'zapret_import', 'launch_qt'],
     hookspath=[],

@@ -53,7 +53,13 @@ zapret-GUI позволяет управлять zapret без ручного з
 <a id="start"></a>
 ## 🚀 Начало работы
 
-Готовый EXE распространяется отдельно от исходников. Порядок публикации сборок будет указан здесь после оформления релиза.
+Скачайте [релиз v0.7](https://github.com/glebroom1/zapret-GUI/releases/tag/v0.7):
+
+- [Приложение для Windows x64](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/Zapret-GUI-0.7-Windows-x64.zip).
+- [Исходники сторонних компонентов](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/Zapret-GUI-0.7-third-party-sources.zip).
+- [Контрольные суммы SHA-256](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/SHA256SUMS.txt).
+
+Лицензии и уведомления включены в архив приложения; версии, источники и порядок пересборки описаны в [SOURCES.md](SOURCES.md).
 
 1. Распакуйте архив готового приложения и запустите EXE.
 2. Выберите сервисы для проверки и включите автоподбор при необходимости.
