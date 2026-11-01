@@ -13,6 +13,8 @@ class StartupTests(unittest.TestCase):
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
 import app_qt
+import startup_admin
+startup_admin.ensure_admin = lambda: True
 original_exec = QApplication.exec
 def bounded_exec(self):
     QTimer.singleShot(300, self.quit)

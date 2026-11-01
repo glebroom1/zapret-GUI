@@ -159,6 +159,9 @@ def main() -> int:
     if '--smoke' in argv:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         return smoke()
+    from startup_admin import ensure_admin
+    if not ensure_admin():
+        return 0
     import runtime_paths as rp
     rp.bootstrap_bundled()
     import app_qt

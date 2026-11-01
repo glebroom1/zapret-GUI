@@ -18,8 +18,8 @@ rem Генерируем модуль zapret_info.py: имя встроенно�
 ".venv-build\Scripts\pyinstaller.exe" --clean --noconfirm --distpath dist --workpath build\work ^
   build\zapret_desk_qt.spec >build\pyinstaller-qt.log 2>&1 || goto :fail
 
-if exist "dist\ZapretDeskQt.exe" (
-  for %%I in ("dist\ZapretDeskQt.exe") do echo Готово: %%~fI ^(%%~zI байт^)
+if exist "dist\Zapret-GUI-0.8-beta6.exe" (
+  for %%I in ("dist\Zapret-GUI-0.8-beta6.exe") do echo Готово: %%~fI ^(%%~zI байт^)
   exit /b 0
 )
 :fail

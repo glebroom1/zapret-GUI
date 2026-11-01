@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec для Zapret Desk Qt: onefile, windowed, сборка zapret встроена как _zapret.
 # Сборка: build\build_qt.cmd (использует тот же .venv-build; системный Python не меняется).
 # Tk-версия 0.4 собирается прежним build\build.cmd и остаётся для отката.
@@ -10,7 +10,7 @@ PROJECT = os.path.dirname(BUILD_DIR)                        # ...\zapret-gui
 ZAPRET = os.path.join(os.path.dirname(PROJECT),             # ...\vs code\zapret-discord-youtube-1.10.4
                       'zapret-discord-youtube-1.10.4')
 ZAPRET = os.environ.get('ZAPRET_SOURCE', ZAPRET)
-NAME = 'ZapretDeskQt'
+NAME = 'Zapret-GUI-0.8-beta6'
 
 if not os.path.isfile(os.path.join(ZAPRET, 'bin', 'winws.exe')):
     raise SystemExit('Не найдена сборка zapret: ' + ZAPRET)

@@ -15,6 +15,10 @@ import urllib.request
 from pathlib import Path
 
 HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+# The engine must outlive the GUI, its console and any kill-on-close job.
+INDEPENDENT_ENGINE = (getattr(subprocess, 'DETACHED_PROCESS', 0) |
+                      getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) |
+                      getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0))
 TARGETS = {'YouTube': 'https://www.youtube.com/generate_204',
            'Discord': 'https://discord.com/api/v10/gateway'}
 CONTROLS = {'Internet 1': 'https://www.microsoft.com/favicon.ico',
@@ -31,11 +35,12 @@ class ForeignEngineError(RuntimeError):
     pass
 
 def connect_profiles(engine, profiles, targets, cancel, emit, grace=4, offline_delay=15,
-                     check=None):
+                     check=None, keep_running=False):
     """One bounded sweep. Network outage pauses on the current ready profile.
 
     No GUI access; emit(kind, payload) and cancellation belong to the caller.
-    Returns (status, profile, results). Only 'connected' keeps the owned engine.
+    Returns (status, profile, results). 'connected' and 'running' keep the engine.
+    keep_running separates engine activation from diagnostic success for the GUI.
     """
     check = check or check_network
     last_results = {}
@@ -66,6 +71,10 @@ def connect_profiles(engine, profiles, targets, cancel, emit, grace=4, offline_d
                     if healthy and engine.running() and engine.ready:
                         success = True
                         return 'connected', current, last_results
+                    if keep_running and engine.running() and engine.ready and (
+                            number == len(profiles) or not any(v[0] for v in last_results.values())):
+                        success = True
+                        return 'running', current, last_results
                     if any(v[0] for v in last_results.values()):
                         break
                     emit('offline', 'Нет ответов ни от сервисов, ни от контрольных узлов. Ожидание сети…')
@@ -391,6 +400,20 @@ class Engine:
         self.logfile = None
         self.status = 'idle'
         self.ready = False
+        self.session_file = None
+
+    def detach(self):
+        self._close()
+
+    def recover(self):
+        from engine_session import recover
+        result = recover(self.session_file) if self.session_file else None
+        if result:
+            self.process, strategy = result
+            self.ready = True
+            self.status = 'ready'
+            return strategy
+        return None
 
     def running(self):
         return self.process is not None and self.process.poll() is None
@@ -415,7 +438,7 @@ class Engine:
         try:
             self.process = subprocess.Popen([str(strategy.parent/'bin/winws.exe'), *args],
                 cwd=str(strategy.parent/'bin'), stdin=subprocess.DEVNULL,
-                stdout=self.output, stderr=subprocess.STDOUT, creationflags=HIDDEN)
+                stdout=self.output, stderr=subprocess.STDOUT, creationflags=INDEPENDENT_ENGINE)
         except Exception:
             self.output.close()
             self.output = None
@@ -445,6 +468,9 @@ class Engine:
                 if b'windivert initialized' in captured.lower() and b'capture is started' in captured.lower():
                     self.status = 'ready'
                     self.ready = True
+                    if self.session_file:
+                        from engine_session import record
+                        record(self.session_file, self.process, strategy)
                     self.log('WinDivert готов: инициализация завершена, перехват запущен')
                     return 'ready'
                 if time.monotonic() >= deadline:

@@ -1,4 +1,4 @@
-"""Zapret Desk Qt · чистая логика и тема в стиле Antigravity Unlocker.
+﻿"""Zapret Desk Qt · чистая логика и тема в стиле Antigravity Unlocker.
 
 Без tkinter и без Qt: только цвета, проверки и решение о блокировке.
 Взято из ui_widgets.py (проверенные функции), палитра — из theme.rs
@@ -21,7 +21,7 @@ WARN = '#e8b339'
 BAD = '#e5635f'
 RADIUS = 10
 RADIUS_SMALL = 6
-VERSION = '0.7'
+VERSION = '0.8.0-beta.6'
 
 # ─ чистая логика (совместимо с ui_widgets) ───────────────────────────────────
 

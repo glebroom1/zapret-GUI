@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import time
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -106,6 +107,42 @@ class TestPureLogic(unittest.TestCase):
         self.assertTrue(C.feature_lock('connected', False, True)[0])
 
 
+class TestAutostart(unittest.TestCase):
+    """Модуль автозапуска: реальный HKCU, но с тестовым именем значения."""
+
+    NAME = 'ZapretGUI-test'
+
+    def setUp(self):
+        import autostart
+        self.mod = autostart
+        autostart.update(False, self.NAME)
+
+    def tearDown(self):
+        self.mod.update(False, self.NAME)
+
+    def test_off_by_default_and_roundtrip(self):
+        self.assertFalse(self.mod.read(self.NAME))
+        self.assertTrue(self.mod.update(True, self.NAME))
+        self.assertTrue(self.mod.read(self.NAME))
+        self.assertTrue(self.mod.update(False, self.NAME))
+        self.assertFalse(self.mod.read(self.NAME))
+
+    def test_double_enable_and_disable_are_idempotent(self):
+        self.assertTrue(self.mod.update(True, self.NAME))
+        self.assertTrue(self.mod.update(True, self.NAME))
+        self.assertTrue(self.mod.update(False, self.NAME))
+        # Повторное удаление после удаления: состояние уже совпадает — ошибки нет.
+        self.assertTrue(self.mod.update(False, self.NAME))
+        self.assertFalse(self.mod.read(self.NAME))
+
+    def test_command_carries_hidden_flag_and_update_mirrors_it(self):
+        self.assertIn(self.mod.START_HIDDEN, self.mod.command())
+        self.mod.update(True, self.NAME)
+        stored = self.mod.current_value(self.NAME)
+        self.assertEqual(stored, self.mod.command())
+        self.assertIn(self.mod.START_HIDDEN, stored)
+
+
 class TestAppCore(QtCase):
     def drain(self, app, cycles=6, wait=0.02):
         for _ in range(cycles):
@@ -126,6 +163,65 @@ class TestAppCore(QtCase):
         self.assertEqual(before, after,
                          'открытие окна и чтение фильтров не должны менять файлы сборки')
         app.close()
+
+    def _stub_autostart(self, update_returns=None):
+        """Подмена модуля автозапуска: ни один тест не трогает реальный HKCU."""
+        import app_qt
+        calls = []
+        allowed = bool(update_returns) if update_returns is not None else None
+
+        class Stub:
+            START_HIDDEN = '--tray'
+            state = [False]           # фактическое состояние ключа, как в реестре
+
+            @staticmethod
+            def read():
+                return Stub.state[0]
+
+            @staticmethod
+            def current_value():
+                return 'exe --tray' if Stub.state[0] else ''
+
+            @staticmethod
+            def command():
+                return 'exe --tray'
+
+            @staticmethod
+            def update(enabled):
+                calls.append(enabled)
+                if allowed is None or allowed:
+                    Stub.state[0] = enabled      # запись удалась
+                # при allowed=False реестр не изменился — состояние прежнее
+                return Stub.state[0] == enabled
+
+        return mock.patch.object(app_qt, '_autostart', Stub), calls
+
+    def test_autostart_toggle_roundtrip(self):
+        patcher, calls = self._stub_autostart()
+        with patcher:
+            app = self.make_app()
+            self.assertFalse(app.autostart_check.isChecked())
+            app.autostart_check.setChecked(True)
+            self.assertEqual(calls, [True])
+            self.assertTrue(app.autostart_check.isChecked())
+            self.assertEqual(app.autostart_note.text(), '')
+            app.autostart_check.setChecked(False)
+            self.assertEqual(calls, [True, False])
+            app.close()
+
+    def test_autostart_toggle_missing_key_reverts_switch(self):
+        patcher, _calls = self._stub_autostart(update_returns=False)
+        with patcher:
+            app = self.make_app()
+            self.assertFalse(app.autostart_check.isChecked())
+            warnings = []
+            with mock.patch.object(app, 'show_warning',
+                                   lambda title, message: warnings.append(title)):
+                app.autostart_check.setChecked(True)
+            self.assertTrue(warnings, 'ошибка записи должна показывать предупреждение')
+            self.assertFalse(app.autostart_check.isChecked(),
+                             'после неудачи переключатель возвращается в выключенное состояние')
+            app.close()
 
     def test_settings_roundtrip(self):
         root = fake_build(Path(self._tmp.name))
@@ -208,6 +304,9 @@ class TestAppCore(QtCase):
             def running(self):
                 return True
 
+            def detach(self):
+                pass
+
             def stop(self):
                 pass
         original = app_qt.connect_profiles
@@ -234,7 +333,7 @@ class TestAppCore(QtCase):
         saved_admin = app_qt.is_admin
         app_qt.is_admin = lambda: True
         try:
-            app.start(auto=False)
+            app.start(auto=True)
             self.assertEqual(app.state, 'connecting')
             self.drain(app, cycles=10)
             self.assertEqual(app.state, 'connected')
@@ -258,6 +357,9 @@ class TestAppCore(QtCase):
 
             def running(self):
                 return False
+
+            def detach(self):
+                pass
 
             def stop(self):
                 self.stopped = True
@@ -451,8 +553,8 @@ class TestImportCard07(QtCase):
     def test_version_label(self):
         from PySide6.QtWidgets import QLabel
         app = self.make_app()
-        self.assertEqual(C.VERSION, '0.7')
-        self.assertIn('0.7 Qt', [w.text() for w in app.findChildren(QLabel)])
+        self.assertEqual(C.VERSION, '0.8.0-beta.6')
+        self.assertIn(C.VERSION, [w.text() for w in app.findChildren(QLabel)])
         app.close()
 
 
@@ -596,6 +698,9 @@ class TestHistoryIntegration(QtCase):
             def running(self):
                 return True
 
+            def detach(self):
+                pass
+
             def stop(self):
                 pass
         ok = {'YouTube': (True, 9, ''), 'Discord': (True, 9, ''),
@@ -678,6 +783,9 @@ class TestHistoryIntegration(QtCase):
 
             def running(self):
                 return True
+
+            def detach(self):
+                pass
 
             def stop(self):
                 pass

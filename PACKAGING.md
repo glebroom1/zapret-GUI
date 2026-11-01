@@ -1,6 +1,6 @@
-﻿# Запуск, сборка и проверка
+# Запуск, сборка и проверка
 
-Проверенное локальное окружение: Windows, Python 3.14, PySide6 6.12.0, PyInstaller 6.22.3.
+Проверенное локальное окружение: Windows, Python 3.14, PySide6 6.12.0, PyInstaller 6.22.0.
 
 ## Запуск исходников
 
@@ -22,7 +22,7 @@ python -m venv .venv-build
 .\build\build_qt.cmd
 ```
 
-Результат: `dist\ZapretDeskQt.exe`. Скрипт встраивает содержимое сторонней сборки в EXE. Перед распространением сохраните требуемые лицензии и уведомления сторонних компонентов. Файлы старого Tk-интерфейса оставлены для совместимости; актуальная точка входа — `app_qt.py`, упаковка — `launch_qt.py`.
+Результат: `dist\Zapret-GUI-0.8-beta6.exe`. Скрипт встраивает содержимое сторонней сборки в EXE. Перед распространением сохраните требуемые лицензии и уведомления сторонних компонентов. Файлы старого Tk-интерфейса оставлены для совместимости; актуальная точка входа — `app_qt.py`, упаковка — `launch_qt.py`.
 
 ## Тесты
 
@@ -36,7 +36,7 @@ python -m venv .venv-build
 
 ```powershell
 $env:LOCALAPPDATA = Join-Path $PWD ('build\smoke-' + [guid]::NewGuid().ToString('N'))
-Start-Process -FilePath '.\dist\ZapretDeskQt.exe' -ArgumentList '--smoke' -Wait
+Start-Process -FilePath '.\dist\Zapret-GUI-0.8-beta6.exe' -ArgumentList '--smoke' -Wait
 Get-Content (Join-Path $env:LOCALAPPDATA 'ZapretDesk\smoke_qt.json')
 ```
 

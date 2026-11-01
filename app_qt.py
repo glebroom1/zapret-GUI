@@ -28,13 +28,14 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar,
     QStyleOptionButton, QPushButton, QPlainTextEdit, QScrollArea, QSizePolicy,
-    QStyle, QVBoxLayout, QWidget,
+    QStyle, QVBoxLayout, QWidget, QSystemTrayIcon, QMenu, QSpacerItem,
 )
 
 from core import (discover, strategies, Rotation, Engine, check_network,
                   is_admin, foreign_engine, ForeignEngineError, connect_profiles, TARGETS)
 from strategy_history import StrategyHistory
 import runtime_paths as _rp
+import autostart as _autostart
 import zapret_import as _zi
 import qt_common as C
 
@@ -107,13 +108,17 @@ class PaintedCheckBox(QCheckBox):
 class App(QMainWindow):
     def __init__(self, data_dir=None):
         super().__init__()
-        self.setWindowTitle('Zapret Desk')
+        self.setWindowTitle('zapret GUI — 0.8 beta 6')
+        self.exit_requested = False
+        self.pending_strategy = None
+        self.tray = None
         self.setWindowIcon(QIcon(str(_rp.bundle_dir() / 'assets' / 'app.png')))
         self.resize(680, 900)
         self.setMinimumSize(640, 620)
         self.DATA = Path(data_dir) if data_dir else _rp.data_dir()
         self.events = queue.Queue()
         self.engine = Engine(lambda msg: self.events.put(('log', msg)))
+        self.engine.session_file = self.DATA/'engine-session.json'
         self.busy = False
         self.operation_lock = threading.Lock()
         self.cancel_event = threading.Event()
@@ -127,6 +132,7 @@ class App(QMainWindow):
         self.log_open = False
         self.attempt = 0
         self.settings = self.load()
+        self._heal_autostart()          # путь EXE переехал — обновить ключ Run
         bundled = _rp.bootstrap_bundled()
         found = []
         for root in _rp.source_roots():
@@ -167,7 +173,18 @@ class App(QMainWindow):
         self.feature_notes = {'gf': '', 'ipset': '', 'list': '', 'diag': '', 'import': ''}
         self.last_diag = None
         self._features_module = 'init'
+        recovered = self.engine.recover()
+        if recovered is not None:
+            self.root_path = recovered.parent
+            self.paths = strategies(self.root_path)
+            self.selected = recovered.stem
+            self.rotation = Rotation([p.stem for p in self.paths])
+            self.rotation.reset(self.selected)
+            self.state = 'connected'
+            self.stage = 'Движок работает · управление восстановлено'
+            self.active_targets = dict(self.check_targets())
         self.build_ui()
+        self.setup_tray()
         self.apply_titlebar_theme()
         self.refresh()
         self.ticker = QTimer(self)
@@ -181,7 +198,12 @@ class App(QMainWindow):
                 self.log('Память стратегий: по умолчанию выбрана '+self.selected)
         else:
             self.log('Сборка не найдена — укажите папку кнопкой «Обзор…»')
-        if '--connect' in sys.argv:
+        requested_strategy = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--select-strategy=')), None)
+        if requested_strategy in [p.stem for p in self.paths]:
+            QTimer.singleShot(300, lambda: self.on_strategy_select(requested_strategy))
+        if '--disconnect' in sys.argv and self.engine.running():
+            QTimer.singleShot(300, self.stop_engine)
+        if '--connect' in sys.argv and self.state != 'connected':
             QTimer.singleShot(300, self.on_main_button)
 
     # ─ служебное ─────────────────────────────────────────────────────────────
@@ -221,6 +243,14 @@ class App(QMainWindow):
         except Exception as exc:
             self.log('Настройки: '+str(exc))
 
+    def _heal_autostart(self):
+        """Ключ Run хранит абсолютный путь: после переезда EXE обновляем его."""
+        try:
+            if _autostart.read() and _autostart.current_value() != _autostart.command():
+                _autostart.update(True)
+        except Exception:
+            pass
+
     # ─ построение интерфейса ─────────────────────────────────────────────────
 
     def build_ui(self):
@@ -233,9 +263,9 @@ class App(QMainWindow):
         top.setFixedHeight(34)
         row = QHBoxLayout(top)
         row.setContentsMargins(14, 0, 14, 0)
-        title = QLabel(' ZAPRET DESK')
-        small = QLabel(' zapret-discord-youtube · одно окно')
-        version = QLabel(C.VERSION+' Qt')
+        title = QLabel(' zapret GUI')
+        small = QLabel(' zapret-discord-youtube')
+        version = QLabel(C.VERSION)
         small.setProperty('muted', True)
         version.setProperty('muted', True)
         row.addWidget(title)
@@ -277,6 +307,7 @@ class App(QMainWindow):
         self.build_connect_card()
         self.build_strategy_card()
         self.build_checks_card()
+        self.build_autostart_card()
         self.build_import_card()
         self.build_gamefilter_card()
         self.build_ipset_card()
@@ -320,12 +351,33 @@ class App(QMainWindow):
         row.setProperty('buttonRow', True)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 6, 0, 0)
-        for i, button in enumerate(buttons):
+        layout.setSpacing(8)
+        for button in buttons:
             layout.addWidget(button)
-            if i == 0:
-                layout.addSpacing(8)
         layout.addStretch(1)
         return row
+
+    def field_row(self, caption: str, widget) -> QWidget:
+        """Строка «подпись + поле»: поле забирает всё свободное место строки."""
+        row = QWidget()
+        row.setProperty('fieldRow', True)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        label = QLabel(caption)
+        label.setMinimumWidth(104)
+        label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        layout.addWidget(label)
+        layout.addWidget(widget, 1)
+        trailing = QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout.addSpacerItem(trailing)
+        return row
+
+    def hint(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setProperty('muted', True)
+        label.setWordWrap(True)
+        return label
 
     # блок 1: подключение
     def build_connect_card(self):
@@ -404,58 +456,66 @@ class App(QMainWindow):
         checks.addWidget(self.discord_check)
         checks.addStretch(1)
         frame.layout().addLayout(checks)
-        interval_row = QGridLayout()
-        interval_row.setContentsMargins(0, 2, 0, 0)
-        caption = QLabel('Интервал, с (15–300)')
-        caption.setProperty('muted', True)
         self.interval_edit = QLineEdit(self.interval)
         self.interval_edit.setFixedWidth(70)
         self.interval_edit.editingFinished.connect(self.on_interval_changed)
-        interval_row.addWidget(caption, 0, 0)
-        interval_row.addWidget(self.interval_edit, 0, 1)
-        folder = self.folder_view = QLabel('Сборка: '+str(self.root_path))
-        folder.setProperty('muted', True)
-        folder.setWordWrap(True)
-        interval_row.addWidget(folder, 1, 0, 1, 2)
-        frame.layout().addLayout(interval_row)
-        frame.layout().addWidget(self.button_row(self.button('Обзор…', self.choose_root),
-                                                 self.button('Сохранить настройки', self.settings_changed)))
+        interval_row = self.field_row('Интервал, с (15–300)', self.interval_edit)
+        self.interval_edit.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        frame.layout().addWidget(interval_row)
+        frame.layout().addWidget(self.button_row(self.button('Сохранить настройки', self.settings_changed)))
+
+    # блок 3c: автозапуск в Windows
+    def build_autostart_card(self):
+        frame = self.card('АВТОЗАПУСК')
+        self.autostart_note = self.note(frame)
+        self.autostart_check = self.toggle(
+            'Запускать при входе в Windows', _autostart.read(), self.on_autostart_changed)
+        frame.layout().addWidget(self.autostart_check)
+        hint = self.hint('При входе приложение откроется сразу свёрнутым в трей и продолжит '
+                         'работать в фоне. Ключ пишется в реестр вашего пользователя '
+                         '(HKCU\\…\\Run), поэтому права администратора не нужны, а сам '
+                         'автозапуск выключается там же, в «Параметры → Приложения → Автозагрузка».')
+        frame.layout().addWidget(hint)
 
     # блок 3b: обновление zapret
     def build_import_card(self):
         frame = self.import_section = self.card('ОБНОВЛЕНИЕ ZAPRET')
+        self.folder_view = QLabel('Сборка: '+str(self.root_path))
+        self.folder_view.setWordWrap(True)
+        self.folder_view.setProperty('muted', True)
+        frame.layout().addWidget(self.folder_view)
         self.import_note = self.note(frame)
         self.import_buttons = self.button_row(self.button('Импорт ZIP…', self.pick_zip_import),
-                                              self.button('Импорт папки…', self.pick_folder_import))
+                                              self.button('Импорт папки…', self.pick_folder_import),
+                                              self.button('Использовать папку без копирования…', self.choose_root))
         frame.layout().addWidget(self.import_buttons)
+        self.update_note = self.note(frame)
+        self.update_note.setText('Автопроверка обновлений приложения; ручной импорт zapret сохранён.')
+        self.update_button = self.button('Проверить обновление приложения', self.check_app_update)
+        frame.layout().addWidget(self.update_button)
 
     # блок 4: game filter
     def build_gamefilter_card(self):
         frame = self.gf_section = self.card('GAME FILTER')
         self.gf_note = self.note(frame)
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 6, 0, 0)
-        grid.setVerticalSpacing(4)
-        grid.addWidget(QLabel('Фильтрация портов:'), 0, 0)
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 6, 0, 0)
+        rows.setSpacing(6)
         self.gf_mode_box = self.combo()
+        rows.addWidget(self.field_row('Фильтрация портов:', self.gf_mode_box))
         self.gf_mode_box.addItems(['disabled', 'tcp', 'udp', 'all'])
         self.gf_mode_box.setCurrentText(self.gf_mode)
         self.gf_mode_box.currentTextChanged.connect(lambda v: setattr(self, 'gf_mode', v))
-        grid.addWidget(self.gf_mode_box, 0, 1)
-        grid.addWidget(QLabel('TCP:'), 1, 0)
         self.gf_tcp_entry = QLineEdit(self.gf_tcp)
         self.gf_tcp_entry.editingFinished.connect(lambda: setattr(self, 'gf_tcp', self.gf_tcp_entry.text()))
-        grid.addWidget(self.gf_tcp_entry, 1, 1)
-        grid.addWidget(QLabel('UDP:'), 2, 0)
+        rows.addWidget(self.field_row('TCP:', self.gf_tcp_entry))
         self.gf_udp_entry = QLineEdit(self.gf_udp)
         self.gf_udp_entry.editingFinished.connect(lambda: setattr(self, 'gf_udp', self.gf_udp_entry.text()))
-        grid.addWidget(self.gf_udp_entry, 2, 1)
-        hint = QLabel('Формат портов: 1024-65535,80 (диапазоны через запятую)')
-        hint.setProperty('muted', True)
-        hint.setWordWrap(True)
-        grid.addWidget(hint, 3, 0, 1, 2)
-        grid.setColumnStretch(1, 1)
-        frame.layout().addLayout(grid)
+        rows.addWidget(self.field_row('UDP:', self.gf_udp_entry))
+        hint = self.hint('Формат: 1024-65535,80. Широкая фильтрация UDP может мешать играм, '
+                         'поэтому по умолчанию стоит tcp.')
+        rows.addWidget(hint)
+        frame.layout().addLayout(rows)
         self.gf_buttons = self.button_row(self.button('Применить фильтр', self.save_filters),
                                           self.button('Загрузить из сборки', self.load_filters))
         frame.layout().addWidget(self.gf_buttons)
@@ -464,22 +524,18 @@ class App(QMainWindow):
     def build_ipset_card(self):
         frame = self.ipset_section = self.card('IPSET-ФИЛЬТР')
         self.ipset_note = self.note(frame)
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 6, 0, 0)
-        grid.setVerticalSpacing(4)
-        grid.addWidget(QLabel('Режим списка:'), 0, 0)
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 6, 0, 0)
+        rows.setSpacing(6)
         self.ipset_mode_box = self.combo()
+        rows.addWidget(self.field_row('Режим списка:', self.ipset_mode_box))
         self.ipset_mode_box.addItems(['loaded', 'none', 'any'])
         self.ipset_mode_box.setCurrentText(self.ipset_mode)
         self.ipset_mode_box.currentTextChanged.connect(lambda v: setattr(self, 'ipset_mode', v))
-        grid.addWidget(self.ipset_mode_box, 0, 1)
-        grid.setColumnStretch(1, 1)
-        hint = QLabel('loaded — только адреса из списка · none — отключить IPSet-профили · '
-                      'any — все IP (широкая фильтрация)')
-        hint.setProperty('muted', True)
-        hint.setWordWrap(True)
-        grid.addWidget(hint, 1, 0, 1, 2)
-        frame.layout().addLayout(grid)
+        hint = self.hint('loaded — только адреса из списка · none — отключить IPSet-профили · '
+                         'any — все IP (широкая фильтрация)')
+        rows.addWidget(hint)
+        frame.layout().addLayout(rows)
         self.ipset_buttons = self.button_row(self.button('Применить режим', self.save_filters),
                                              self.button('Обновить IPSet', self.update_ipset))
         frame.layout().addWidget(self.ipset_buttons)
@@ -579,21 +635,26 @@ class App(QMainWindow):
         if self.state == 'connecting':
             self.cancel_connection()
         elif self.state == 'connected' or self.engine.running():
-            self.stop_engine()
+            if not is_admin():
+                self.elevate(disconnect=True)
+            else:
+                self.stop_engine()
         elif not is_admin():
             self.offer_elevation('Для драйвера WinDivert нужны права администратора.')
         else:
-            self.start(auto=False)
+            self.start(auto=self.auto)
 
     def start(self, auto):
         """Запуск стратегия→движок→ожидание→проверка. Долгое — в connect_worker."""
         if self.feature_busy or self.operation_active or self.state in ('connecting', 'stopping'):
             return
+        if not is_admin() and self.engine.running():
+            self.save()
+            self.elevate(strategy=self.selected)
+            return
         gen = self.generation + 1
         try:
             self.save()
-            if not self.check_targets():
-                raise ValueError('Включите проверку хотя бы одного сервиса.')
         except Exception as exc:
             self.show_warning('Настройки', str(exc))
             return
@@ -611,7 +672,7 @@ class App(QMainWindow):
         self.log('Подключение: '+path.stem+(' · автопереключение' if auto else ''))
         targets = self.check_targets()
         self.active_targets = dict(targets)
-        profiles = self.history_profiles(path, targets)
+        profiles = self.history_profiles(path, targets) if auto else [path]
         self.engine.session_log = self.DATA/'engine.log'
         threading.Thread(target=self.connect_worker,
                          args=(tuple(profiles), gen, targets, self.cancel_event),
@@ -633,10 +694,10 @@ class App(QMainWindow):
                 self.events.put(('selection_event', (gen, kind, payload)))
 
             status, profile, results = connect_profiles(self.engine, profiles, targets, cancel,
-                                                        emit, grace=ENGINE_GRACE)
+                                                        emit, grace=ENGINE_GRACE, keep_running=True)
             if cancel.is_set() or self.stale(gen):
                 return
-            if status == 'connected':
+            if status in ('connected', 'running'):
                 self.events.put(('connect_done', (gen, results)))
             elif status == 'exhausted':
                 self.post_failed(gen, 'exhausted', 'Проверены все выбранные стратегии. '
@@ -687,6 +748,7 @@ class App(QMainWindow):
                      +') — подключение не затронуто.')
 
     def cancel_connection(self):
+        self.pending_strategy = None
         self.stop_engine()
         self.log('Отменено во время запуска')
 
@@ -704,16 +766,17 @@ class App(QMainWindow):
             return
         names = self.active_targets
         healthy = bool(names) and all(results.get(name, (False,))[0] for name in names)
-        if not healthy or not self.engine.running() or not self.engine.ready:
+        if not self.engine.running() or not self.engine.ready:
             self.set_state('idle', 'Подключение не подтверждено. Смотрите журнал.')
             return
         self.last_check = time.strftime('%H:%M:%S')
         self.show_health(results)
         self.rotation.reset(self.selected)
         self.next_check = time.monotonic()+self.interval_seconds()
-        self.set_state('connected', 'Подключено · '+self.selected)
-        self.log('Подключение подтверждено: WinDivert готов, выбранные HTTPS-проверки пройдены')
-        self.record_history_success(self.selected)
+        self.set_state('connected', ('Подключено' if healthy else 'Движок работает, проверка не пройдена')+' · '+self.selected)
+        self.log('Zapret включён: WinDivert готов. '+('HTTPS-проверки пройдены' if healthy else 'Доступность сервисов не подтверждена'))
+        if healthy:
+            self.record_history_success(self.selected)
         self.settings_changed()
 
     def stop_engine(self):
@@ -760,6 +823,20 @@ class App(QMainWindow):
                     self.apply_connect_done(*payload)
                 elif kind == 'connect_failed':
                     self.apply_connect_failed(*payload)
+                elif kind in ('app_update', 'app_update_error'):
+                    self._update_busy = False
+                    self.update_button.setEnabled(True)
+                    if kind == 'app_update_error':
+                        self.update_note.setText('Не удалось проверить обновления: '+payload)
+                    elif payload is None:
+                        self.update_note.setText('Новых стабильных версий нет. Установлена '+C.VERSION)
+                    else:
+                        self.update_note.setText('Доступна версия '+payload['tag'])
+                        if QMessageBox.question(self, 'Обновление zapret GUI',
+                                'Доступна '+payload['tag']+'. Открыть страницу загрузки?') == QMessageBox.Yes:
+                            from PySide6.QtGui import QDesktopServices
+                            from PySide6.QtCore import QUrl
+                            QDesktopServices.openUrl(QUrl(payload['url']))
                 elif kind == 'filters_loaded':
                     self.apply_filters_loaded(payload)
                 elif kind == 'feature_finished':
@@ -795,7 +872,11 @@ class App(QMainWindow):
                     self.log(message)
                     self.refresh()
                 elif kind == 'operation_done':
-                    self.operation_active = False
+                    if not self.stale(payload):
+                        self.operation_active = False
+                        if self.closing:
+                            self.close()
+                            return
                 elif kind == 'import_inspected':
                     zip_path, report, dest_root, previous, initial_note = payload
                     self.feature_busy = False
@@ -828,6 +909,10 @@ class App(QMainWindow):
                     if self.closing:
                         self.close()
                         return
+                    if self.pending_strategy:
+                        self.selected = self.pending_strategy
+                        self.pending_strategy = None
+                        self.start(auto=False)
         except queue.Empty:
             pass
         if self.state == 'connected' and not self.engine.running():
@@ -953,7 +1038,7 @@ class App(QMainWindow):
 
     def refresh(self):
         running = self.engine.running()
-        self.strategy_combo.setEnabled(self.state not in ('connecting', 'stopping'))
+        self.strategy_combo.setEnabled(not (self.feature_busy or self.closing))
         self.main_button.setEnabled(not (self.state == 'stopping' or self.feature_busy))
         if self.state == 'connecting':
             self.progress.show()
@@ -1011,15 +1096,17 @@ class App(QMainWindow):
         """Предлагает перезапуск GUI с повышением прав. UAC подтверждает пользователь."""
         try:
             self.save()
-            if not self.check_targets():
-                raise ValueError('Включите проверку хотя бы одного сервиса.')
         except Exception as exc:
             self.show_warning('Настройки', str(exc))
             return
         self.elevate()
 
-    def elevate(self):
+    def elevate(self, disconnect=False, strategy=None):
         target, args, workdir = _rp.elevate_target()
+        if strategy:
+            args = [arg for arg in args if arg != '--connect'] + ['--select-strategy='+strategy]
+        if disconnect:
+            args = [arg for arg in args if arg != '--connect'] + ['--disconnect']
         previous_reset = os.environ.get('PYINSTALLER_RESET_ENVIRONMENT')
         if _rp.is_frozen():
             os.environ['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
@@ -1038,6 +1125,7 @@ class App(QMainWindow):
             self.set_state('idle', 'Повышение прав отменено или недоступно.')
 
     def close_and_delete(self):
+        self.exit_requested = True
         self.ticker.stop()
         self.close()
         self.deleteLater()
@@ -1045,10 +1133,13 @@ class App(QMainWindow):
     # ─ выбор стратегии и сборки ──────────────────────────────────────────────
 
     def on_strategy_select(self, value):
-        if not value:
+        if not value or self.closing or self.exit_requested:
             return
         self.selected = value
-        if self.state == 'connected' and self.engine.running():
+        if self.operation_active or self.state in ('connecting', 'stopping'):
+            self.pending_strategy = value
+            self.stop_engine()
+        elif self.engine.running():
             self.log('Смена стратегии: '+value)
             self.start(auto=False)
         else:
@@ -1065,6 +1156,19 @@ class App(QMainWindow):
     def on_discord_changed(self, checked):
         self.discord = checked
         self.settings_changed()
+
+    def on_autostart_changed(self, checked):
+        # update() возвращает факт: соответствует ли состояние реестра желаемому.
+        if _autostart.update(checked):
+            self.log('Автозапуск: включён — запуск при входе в Windows (сразу в трей)'
+                     if checked else 'Автозапуск: выключен')
+            return
+        # Реестр не поддался — вернуть переключатель в фактическое состояние.
+        self.autostart_check.blockSignals(True)
+        self.autostart_check.setChecked(_autostart.read())
+        self.autostart_check.blockSignals(False)
+        self.show_warning('Автозапуск', 'Не удалось обновить запись автозапуска в реестре '
+                          r'(HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run)')
 
     def on_interval_changed(self):
         self.interval = self.interval_edit.text().strip()
@@ -1559,7 +1663,7 @@ class App(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, 'Отчёт', 'zapret-report.txt', 'Text (*.txt)')
         if not filename:
             return
-        report = ('Zapret Desk '+C.VERSION+' Qt\nСборка: '+str(self.root_path)
+        report = ('zapret GUI '+C.VERSION+' Qt\nСборка: '+str(self.root_path)
                   +'\nСтратегия: '+self.selected+'\n\n')
         for name in ('desk.log', 'engine.log'):
             path = self.DATA/name
@@ -1572,7 +1676,52 @@ class App(QMainWindow):
 
     # ─ завершение ────────────────────────────────────────────────────────────
 
+    def setup_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray = QSystemTrayIcon(self.windowIcon(), self)
+        self.tray.setToolTip('zapret GUI — работает в фоне')
+        menu = QMenu(self)
+        menu.addAction('Открыть zapret GUI', self.restore_window)
+        menu.addAction('Выйти — оставить zapret включённым', self.request_exit)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.on_tray_activated)
+        self.tray.show()
+
+    def on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.restore_window()
+
+    def restore_window(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def request_exit(self):
+        self.exit_requested = True
+        self.pending_strategy = None
+        self.close()
+
+    def check_app_update(self):
+        if getattr(self, '_update_busy', False):
+            return
+        self._update_busy = True
+        self.update_button.setEnabled(False)
+        self.update_note.setText('Проверка обновлений…')
+        def worker():
+            try:
+                from app_updates import latest_release
+                result = latest_release(C.VERSION)
+                self.events.put(('app_update', result))
+            except Exception as exc:
+                self.events.put(('app_update_error', str(exc)))
+        threading.Thread(target=worker, daemon=True).start()
+
     def closeEvent(self, event):
+        if self.tray is not None and not self.exit_requested:
+            self.hide()
+            event.ignore()
+            return
         if self.feature_busy:
             self.closing = True
             event.ignore()
@@ -1581,12 +1730,19 @@ class App(QMainWindow):
             self.save()
         except Exception:
             pass
-        if self.engine.running() or self.operation_active or self.state == 'stopping':
+        if self.operation_active or self.state == 'stopping':
             self.closing = True
             event.ignore()
-            self.stop_engine()
+            # Finish the current bounded launch/check before detaching.
         else:
+            self.engine.detach()
             event.accept()
+            if self.tray is not None:
+                self.tray.hide()
+            # Closing an already hidden window does not emit lastWindowClosed.
+            # Quit explicitly after all engine/file operations have finished.
+            if self.exit_requested:
+                QApplication.instance().quit()
 
 
 # ─ стили ──────────────────────────────────────────────────────────────────────
@@ -1711,13 +1867,25 @@ QToolTip {{ background: {C.CARD}; color: {C.TEXT}; border: 1px solid {C.LINE}; }
 
 
 def main():
+    from startup_admin import ensure_admin
+    if not ensure_admin():
+        return 0
     app = QApplication(sys.argv)
+    from single_instance import SingleInstance
+    instance = SingleInstance()
+    if not instance.acquire():
+        return 0
     app.setStyleSheet(stylesheet())
     font = QFont('Segoe UI', 10)
     font.setStyleHint(QFont.SansSerif)
     app.setFont(font)
     window = App()
-    window.show()
+    instance.listen(window.restore_window)
+    # Автозапуск (--tray): поднимаемся сразу в трей, окно не открываем.
+    # Без трея прятать окно нельзя — приложение стало бы «невидимым».
+    if '--tray' not in sys.argv or window.tray is None:
+        window.show()
+    QTimer.singleShot(3000, window.check_app_update)
     QTimer.singleShot(150, window.apply_titlebar_theme)
     app.exec()
     return 0

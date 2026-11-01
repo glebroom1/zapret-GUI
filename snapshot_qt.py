@@ -15,6 +15,14 @@ import core  # noqa: E402
 
 out = Path(sys.argv[1]) if len(sys.argv) > 1 else PROJECT/'preview_qt.png'
 app = QApplication(sys.argv)
+from PySide6.QtGui import QFont, QFontDatabase
+# Windows offscreen plugin does not enumerate installed fonts.
+font_file = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts/segoeui.ttf'
+if font_file.is_file():
+    QFontDatabase.addApplicationFont(str(font_file))
+font = QFont('Segoe UI', 10)
+font.setStyleHint(QFont.SansSerif)
+app.setFont(font)
 import app_qt  # noqa: E402
 app.setStyleSheet(app_qt.stylesheet())
 window = app_qt.App(data_dir=Path(os.environ['LOCALAPPDATA']))
@@ -33,9 +41,9 @@ window.state = 'idle'
 window.stage = ''
 window.show()
 height = int(sys.argv[2]) if len(sys.argv) > 2 else 900
-if height != 900:
-    window.resize(680, height)
-    window.setMinimumHeight(height)
+width = int(sys.argv[3]) if len(sys.argv) > 3 else 680
+window.resize(width, height)
+window.setMinimumHeight(height)
 app.processEvents()
 window.log('Найдено стратегий: '+str(len(window.paths))+' · '+window.root_path.name)
 app.processEvents()
