@@ -553,7 +553,7 @@ class TestImportCard07(QtCase):
     def test_version_label(self):
         from PySide6.QtWidgets import QLabel
         app = self.make_app()
-        self.assertEqual(C.VERSION, '0.8.0-beta.6')
+        self.assertEqual(C.VERSION, '0.8')
         self.assertIn(C.VERSION, [w.text() for w in app.findChildren(QLabel)])
         app.close()
 

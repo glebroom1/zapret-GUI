@@ -10,7 +10,7 @@ PROJECT = os.path.dirname(BUILD_DIR)                        # ...\zapret-gui
 ZAPRET = os.path.join(os.path.dirname(PROJECT),             # ...\vs code\zapret-discord-youtube-1.10.4
                       'zapret-discord-youtube-1.10.4')
 ZAPRET = os.environ.get('ZAPRET_SOURCE', ZAPRET)
-NAME = 'Zapret-GUI-0.8-beta6'
+NAME = 'Zapret-GUI-0.8'
 
 if not os.path.isfile(os.path.join(ZAPRET, 'bin', 'winws.exe')):
     raise SystemExit('Не найдена сборка zapret: ' + ZAPRET)

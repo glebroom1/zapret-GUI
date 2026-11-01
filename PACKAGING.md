@@ -22,7 +22,7 @@ python -m venv .venv-build
 .\build\build_qt.cmd
 ```
 
-Результат: `dist\Zapret-GUI-0.8-beta6.exe`. Скрипт встраивает содержимое сторонней сборки в EXE. Перед распространением сохраните требуемые лицензии и уведомления сторонних компонентов. Файлы старого Tk-интерфейса оставлены для совместимости; актуальная точка входа — `app_qt.py`, упаковка — `launch_qt.py`.
+Результат: `dist\Zapret-GUI-0.8.exe`. Скрипт встраивает содержимое сторонней сборки в EXE. Перед распространением сохраните требуемые лицензии и уведомления сторонних компонентов. Файлы старого Tk-интерфейса оставлены для совместимости; актуальная точка входа — `app_qt.py`, упаковка — `launch_qt.py`.
 
 ## Тесты
 
@@ -36,7 +36,7 @@ python -m venv .venv-build
 
 ```powershell
 $env:LOCALAPPDATA = Join-Path $PWD ('build\smoke-' + [guid]::NewGuid().ToString('N'))
-Start-Process -FilePath '.\dist\Zapret-GUI-0.8-beta6.exe' -ArgumentList '--smoke' -Wait
+Start-Process -FilePath '.\dist\Zapret-GUI-0.8.exe' -ArgumentList '--smoke' -Wait
 Get-Content (Join-Path $env:LOCALAPPDATA 'ZapretDesk\smoke_qt.json')
 ```
 

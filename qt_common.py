@@ -21,7 +21,7 @@ WARN = '#e8b339'
 BAD = '#e5635f'
 RADIUS = 10
 RADIUS_SMALL = 6
-VERSION = '0.8.0-beta.6'
+VERSION = '0.8'
 
 # ─ чистая логика (совместимо с ui_widgets) ───────────────────────────────────
 

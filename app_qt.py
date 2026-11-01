@@ -108,7 +108,7 @@ class PaintedCheckBox(QCheckBox):
 class App(QMainWindow):
     def __init__(self, data_dir=None):
         super().__init__()
-        self.setWindowTitle('zapret GUI — 0.8 beta 6')
+        self.setWindowTitle('zapret GUI — 0.8')
         self.exit_requested = False
         self.pending_strategy = None
         self.tray = None

@@ -1,6 +1,6 @@
 # Исходники сторонних компонентов
 
-Архив [Zapret-GUI-0.7-third-party-sources.zip](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/Zapret-GUI-0.7-third-party-sources.zip) в релизе v0.7 содержит исходники перечисленных LGPL-библиотек тех же версий, используемых в 0.8.0-beta.6. Библиотеки не модифицировались.
+Архив [Zapret-GUI-0.7-third-party-sources.zip](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/Zapret-GUI-0.7-third-party-sources.zip) в релизе v0.7 содержит исходники перечисленных LGPL-библиотек тех же версий, используемых в 0.8. Библиотеки не модифицировались.
 Сведения об исходных загрузках и SHA-256 приведены в source-manifest.json.
 
 Оболочка и инструкции пересборки: https://github.com/glebroom1/zapret-GUI
