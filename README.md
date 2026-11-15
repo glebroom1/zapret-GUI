@@ -1,13 +1,21 @@
 ﻿# ⚡ zapret-GUI
 
-**Графический интерфейс для zapret под Windows.** Подключение, подбор стратегий и основные настройки — в одном окне. Текущая версия приложения: **zapret GUI 0.8**.
+**Графический интерфейс для zapret под Windows.** Подключение, подбор стратегий и основные настройки — в одном окне. Текущая версия приложения: **zapret GUI 0.9.0**.
 
 💜 на новые подписки нейронок: [Boosty](https://boosty.to/breadus)
 
-**Версия 0.8:** [скачать](https://github.com/glebroom1/zapret-GUI/releases/tag/v0.8). Добавлены трей, автозапуск, восстановление управления работающим zapret и автообновление с переходом к загрузке. Ограничения проверки указаны в описании релиза.
+**Версия 0.9.0:** [скачать](https://github.com/glebroom1/zapret-GUI/releases/tag/v0.9.0). Добавлены трей, автозапуск, восстановление управления работающим zapret и автообновление с переходом к загрузке. Ограничения проверки указаны в описании релиза.
 
 > [!CAUTION]
 > **ЭТОТ ПРОЕКТ ПОЛНОСТЬЮ ЗАВАЙБКОДЕН С ПОМОЩЬЮ ИИ. В КОДЕ МОГУТ БЫТЬ ОШИБКИ. СТАБИЛЬНАЯ РАБОТА НЕ ГАРАНТИРУЕТСЯ — ИСПОЛЬЗУЙТЕ НА СВОЙ СТРАХ И РИСК.**
+
+## Windows 0.9.0
+
+[Скачать Windows x64](https://github.com/glebroom1/zapret-GUI/releases/download/v0.9.0/Zapret-GUI-0.9.0-Windows-x64.zip) · [Изменения и границы проверок](https://github.com/glebroom1/zapret-GUI/releases/download/v0.9.0/RELEASE-NOTES-0.9.0.md)
+
+Исправлены автоподбор по HTTPS, обработка устаревших результатов и восстановление независимого Telegram worker. Успешный HTTPS не выдаётся за проверенное видео: статус сообщает «Стратегия выбрана по HTTPS · видео не проверено». Telegram-прокси остаётся отдельным процессом и сохраняет свой порт и секрет при восстановлении.
+
+266 unit/integration проверок; проверены встроенные модули EXE, worker и обновление временной установки с откатом. Инициализация WinDivert проверена с повышением прав на отдельном тестовом порту. Реальное видео, пользовательский Telegram, физический сон, чистая Windows и многочасовая работа не подтверждены. Успех через внешний VPN не доказывает эффективность winws. Подробности — в файлах выпуска.
 
 ## 📑 Содержание
 
@@ -57,11 +65,11 @@ zapret-GUI позволяет управлять zapret без ручного з
 <a id="start"></a>
 ## 🚀 Начало работы
 
-Скачайте [релиз v0.8](https://github.com/glebroom1/zapret-GUI/releases/tag/v0.8):
+Скачайте [релиз v0.8](https://github.com/glebroom1/zapret-GUI/releases/tag/v0.9.0):
 
-- [Приложение для Windows x64](https://github.com/glebroom1/zapret-GUI/releases/download/v0.8/Zapret-GUI-0.8-Windows-x64.zip).
+- [Приложение для Windows x64](https://github.com/glebroom1/zapret-GUI/releases/download/v0.9.0/Zapret-GUI-0.9.0-Windows-x64.zip).
 - [Исходники сторонних компонентов](https://github.com/glebroom1/zapret-GUI/releases/download/v0.7/Zapret-GUI-0.7-third-party-sources.zip).
-- [Контрольные суммы SHA-256](https://github.com/glebroom1/zapret-GUI/releases/download/v0.8/SHA256SUMS.txt).
+- [Контрольные суммы SHA-256](https://github.com/glebroom1/zapret-GUI/releases/download/v0.9.0/SHA256SUMS-Windows-0.9.0.txt).
 
 Лицензии и уведомления включены в архив приложения; версии, источники и порядок пересборки описаны в [SOURCES.md](SOURCES.md).
 
