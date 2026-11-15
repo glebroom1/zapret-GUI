@@ -19,7 +19,7 @@ class NetworkReviewTests(unittest.TestCase):
         engine.running.return_value = True
         return engine
 
-    def test_recovered_dns_stops_sweep_and_keeps_engine(self):
+    def test_recovered_dns_does_not_verify_video(self):
         engine = self.engine()
         cancel = threading.Event()
         targets = {'YouTube': core.TARGETS['YouTube']}
@@ -29,10 +29,11 @@ class NetworkReviewTests(unittest.TestCase):
             core._dns_recovery(targets, results)
             return results
         with patch('core.probe_via_doh', return_value=(True, 2, '')):
-            status, _, _ = core.connect_profiles(engine, [Path('A.bat'), Path('B.bat')],
+            status, _, results = core.connect_profiles(engine, [Path('A.bat'), Path('B.bat')],
                 targets, cancel, Mock(), grace=0, check=check)
-        self.assertEqual(status, 'connected')
-        engine.start.assert_called_once()
+        self.assertEqual(status, 'provisional')
+        self.assertFalse(core.verified(targets, results))
+        self.assertEqual(engine.start.call_count, 1)
         engine.stop.assert_not_called()
 
     def test_cancel_during_probe_stops_owned_engine(self):

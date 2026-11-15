@@ -34,10 +34,14 @@ from PySide6.QtWidgets import (
 from core import (discover, strategies, Rotation, Engine, check_network,
                   is_admin, foreign_engine, ForeignEngineError, connect_profiles, TARGETS)
 from strategy_history import StrategyHistory
+from connection_health import network_key, verified, assessment, eligible, evidence_text
+from core import bounded_check
 import runtime_paths as _rp
 import autostart as _autostart
 import zapret_import as _zi
 import qt_common as C
+from telegram_ui import TelegramProxyUI
+from update_ui import UpdateUI
 
 ENGINE_GRACE = 4  # пауза старта движка перед первой проверкой
 IMPORT_HINT = 'Импортируйте сюда архив с GitHub или папку с zapret с пользовательскими доменами'
@@ -105,10 +109,10 @@ class PaintedCheckBox(QCheckBox):
         painter.end()
 
 
-class App(QMainWindow):
+class App(UpdateUI, TelegramProxyUI, QMainWindow):
     def __init__(self, data_dir=None):
         super().__init__()
-        self.setWindowTitle('zapret GUI — 0.8')
+        self.setWindowTitle('zapret GUI — ' + C.VERSION)
         self.exit_requested = False
         self.pending_strategy = None
         self.tray = None
@@ -117,6 +121,7 @@ class App(QMainWindow):
         self.setMinimumSize(640, 620)
         self.DATA = Path(data_dir) if data_dir else _rp.data_dir()
         self.events = queue.Queue()
+        self.init_telegram()
         self.engine = Engine(lambda msg: self.events.put(('log', msg)))
         self.engine.session_file = self.DATA/'engine-session.json'
         self.busy = False
@@ -127,6 +132,10 @@ class App(QMainWindow):
         self.closing = False
         self.state = 'idle'      # idle | connecting | connected | stopping
         self.generation = 0
+        self.network_context = network_key()
+        self.next_network_poll = 0
+        self.health_state = 'unverified'
+        self.selection_auto = False
         self.next_check = 0
         self.stage = ''
         self.log_open = False
@@ -232,7 +241,7 @@ class App(QMainWindow):
         settings = dict(root=str(self.root_path), strategy=self.selected, auto=self.auto,
                         youtube=self.youtube, discord=self.discord, interval=interval,
                         game_mode=self.gf_mode, gf_tcp=self.gf_tcp.strip(),
-                        gf_udp=self.gf_udp.strip(), ipset_mode=self.ipset_mode)
+                        gf_udp=self.gf_udp.strip(), ipset_mode=self.ipset_mode, auto_update=getattr(self, 'auto_update', True))
         temp = self.DATA/'settings.tmp'
         temp.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding='utf-8')
         temp.replace(self.DATA/'settings.json')
@@ -307,6 +316,7 @@ class App(QMainWindow):
         self.build_connect_card()
         self.build_strategy_card()
         self.build_checks_card()
+        self.build_telegram_card()
         self.build_autostart_card()
         self.build_import_card()
         self.build_gamefilter_card()
@@ -471,10 +481,9 @@ class App(QMainWindow):
         self.autostart_check = self.toggle(
             'Запускать при входе в Windows', _autostart.read(), self.on_autostart_changed)
         frame.layout().addWidget(self.autostart_check)
-        hint = self.hint('При входе приложение откроется сразу свёрнутым в трей и продолжит '
-                         'работать в фоне. Ключ пишется в реестр вашего пользователя '
-                         '(HKCU\\…\\Run), поэтому права администратора не нужны, а сам '
-                         'автозапуск выключается там же, в «Параметры → Приложения → Автозагрузка».')
+        hint = self.hint('При входе в Windows приложение запускается сразу в трее '
+                         'с правами администратора (без всплывающего окна UAC) и автоматически '
+                         'подключает zapret. Для ноутбуков включена работа от батареи.')
         frame.layout().addWidget(hint)
 
     # блок 3b: обновление zapret
@@ -489,10 +498,7 @@ class App(QMainWindow):
                                               self.button('Импорт папки…', self.pick_folder_import),
                                               self.button('Использовать папку без копирования…', self.choose_root))
         frame.layout().addWidget(self.import_buttons)
-        self.update_note = self.note(frame)
-        self.update_note.setText('Автопроверка обновлений приложения; ручной импорт zapret сохранён.')
-        self.update_button = self.button('Проверить обновление приложения', self.check_app_update)
-        frame.layout().addWidget(self.update_button)
+        self.init_update_ui(frame)
 
     # блок 4: game filter
     def build_gamefilter_card(self):
@@ -663,6 +669,8 @@ class App(QMainWindow):
             self.show_warning('Стратегия', 'Выберите папку сборки и стратегию')
             return
         self.generation = gen
+        self.network_context = network_key()
+        self.selection_auto = auto
         self.busy = False
         self.cancel_event = threading.Event()
         self.operation_active = True
@@ -694,17 +702,15 @@ class App(QMainWindow):
                 self.events.put(('selection_event', (gen, kind, payload)))
 
             status, profile, results = connect_profiles(self.engine, profiles, targets, cancel,
-                                                        emit, grace=ENGINE_GRACE, keep_running=True)
+                                                        emit, grace=ENGINE_GRACE, keep_running=not self.selection_auto)
             if cancel.is_set() or self.stale(gen):
                 return
-            if status in ('connected', 'running'):
+            if status in ('connected', 'provisional', 'running'):
                 self.events.put(('connect_done', (gen, results)))
+            elif status in ('limited', 'network_changed'):
+                self.post_failed(gen, status, 'Проверка ограничена или сеть изменилась. Повторите подключение.')
             elif status == 'exhausted':
-                self.post_failed(gen, 'exhausted', 'Проверены все выбранные стратегии. '
-                                                   'Подключение не подтверждено. Смотрите журнал.'
-                                                   ' Если браузер при этом открывал сайты — браузер '
-                                                   'может использовать свой DNS, кэш или QUIC; '
-                                                   'пометки «DNS» в журнале объясняют расхождение.')
+                self.post_failed(gen, 'exhausted', 'Подходящая стратегия не подтверждена. Видео не проверено.')
         except Exception as exc:
             self.engine.stop()
             code = ('foreign' if isinstance(exc, ForeignEngineError)
@@ -764,8 +770,17 @@ class App(QMainWindow):
     def apply_connect_done(self, gen, results):
         if self.stale(gen):
             return
+        context = network_key()
+        if self.network_context != context:
+            self.network_context = context
+            self.pending_strategy = None
+            self.busy = False
+            self.stop_engine()
+            self.log('Сеть изменилась во время подключения. Повторите подключение после остановки.')
+            return
         names = self.active_targets
-        healthy = bool(names) and all(results.get(name, (False,))[0] for name in names)
+        healthy = verified(names, results)
+        self.health_state = assessment(names, results)
         if not self.engine.running() or not self.engine.ready:
             self.set_state('idle', 'Подключение не подтверждено. Смотрите журнал.')
             return
@@ -773,8 +788,8 @@ class App(QMainWindow):
         self.show_health(results)
         self.rotation.reset(self.selected)
         self.next_check = time.monotonic()+self.interval_seconds()
-        self.set_state('connected', ('Подключено' if healthy else 'Движок работает, проверка не пройдена')+' · '+self.selected)
-        self.log('Zapret включён: WinDivert готов. '+('HTTPS-проверки пройдены' if healthy else 'Доступность сервисов не подтверждена'))
+        self.set_state('connected', evidence_text(names, results)+' · '+self.selected)
+        self.log('Zapret включён: WinDivert готов. '+evidence_text(names, results))
         if healthy:
             self.record_history_success(self.selected)
         self.settings_changed()
@@ -783,6 +798,7 @@ class App(QMainWindow):
         if self.state == 'stopping':
             return
         self.generation += 1
+        self.health_state = 'unverified'
         self.cancel_event.set()
         self.set_state('stopping', 'Остановка движка…')
         self.log('Отключение…')
@@ -800,11 +816,30 @@ class App(QMainWindow):
     # ─ главный цикл очереди ──────────────────────────────────────────────────
 
     def tick(self):
+        if time.monotonic() >= self.next_network_poll:
+            self.next_network_poll = time.monotonic() + 3
+            context = network_key()
+            if context != self.network_context:
+                self.network_context = context
+                self.health_state = 'unverified'
+                if self.state == 'connecting':
+                    self.stop_engine()
+                elif self.state != 'stopping':
+                    self.generation += 1
+                    self.cancel_event.set()
+                    self.cancel_event = threading.Event()
+                    self.busy = False
+                    self.next_check = 0
+                    self.show_health({})
+                    if self.state == 'connected':
+                        self.set_stage('Сеть изменилась · доступность не проверена')
         try:
             while True:
                 kind, payload = self.events.get_nowait()
                 if kind == 'log':
                     self.log(payload)
+                elif kind.startswith('telegram_'):
+                    self.handle_telegram_event(kind, payload)
                 elif kind == 'stage':
                     gen, text = payload
                     if not self.stale(gen) and self.state == 'connecting':
@@ -818,25 +853,17 @@ class App(QMainWindow):
                     gen, text = payload
                     if not self.stale(gen):
                         self.busy = False
+                        self.health_state = 'unverified'
+                        self.show_health({})
+                        if self.state == 'connected':
+                            self.set_stage('Движок работает · проверка не завершена')
                         self.log('Ошибка проверки: '+text)
                 elif kind == 'connect_done':
                     self.apply_connect_done(*payload)
                 elif kind == 'connect_failed':
                     self.apply_connect_failed(*payload)
-                elif kind in ('app_update', 'app_update_error'):
-                    self._update_busy = False
-                    self.update_button.setEnabled(True)
-                    if kind == 'app_update_error':
-                        self.update_note.setText('Не удалось проверить обновления: '+payload)
-                    elif payload is None:
-                        self.update_note.setText('Новых стабильных версий нет. Установлена '+C.VERSION)
-                    else:
-                        self.update_note.setText('Доступна версия '+payload['tag'])
-                        if QMessageBox.question(self, 'Обновление zapret GUI',
-                                'Доступна '+payload['tag']+'. Открыть страницу загрузки?') == QMessageBox.Yes:
-                            from PySide6.QtGui import QDesktopServices
-                            from PySide6.QtCore import QUrl
-                            QDesktopServices.openUrl(QUrl(payload['url']))
+                elif kind.startswith('app_update_'):
+                    self.handle_update_event(kind, payload)
                 elif kind == 'filters_loaded':
                     self.apply_filters_loaded(payload)
                 elif kind == 'feature_finished':
@@ -903,6 +930,8 @@ class App(QMainWindow):
                     self.feature_busy = False
                     self.apply_folder_build_done(*payload)
                 elif kind == 'stopped':
+                    if self.stale(payload):
+                        continue
                     self.operation_active = False
                     self.busy = False
                     self.set_state('idle', 'Остановлено')
@@ -916,11 +945,8 @@ class App(QMainWindow):
         except queue.Empty:
             pass
         if self.state == 'connected' and not self.engine.running():
-            # Движок завершился сам: как в app.py — рестарт при авто или честный статус.
-            if self.auto:
-                self.start(auto=True)
-            else:
-                self.set_state('idle', 'Движок завершился · подробности в engine.log')
+            self.health_state = 'unverified'
+            self.set_state('idle', 'Движок завершился · повторите подключение')
         if self.state == 'connected' and self.engine.running() and not self.busy \
                 and time.monotonic() >= self.next_check:
             self.check()
@@ -955,17 +981,23 @@ class App(QMainWindow):
     # ─ периодические проверки и автопереключение ─────────────────────────────
 
     def check(self):
-        if self.busy:
+        if self.busy or getattr(self, '_installing', False):
             return
         targets = dict(self.active_targets)
         if not targets:
             return
         self.busy = True
         gen = self.generation
+        context = network_key()
+        cancel = self.cancel_event
 
         def worker():
             try:
-                self.events.put(('checks', (gen, check_network(targets))))
+                results = bounded_check(targets, cancel)
+                if context == network_key():
+                    self.events.put(('checks', (gen, results)))
+                else:
+                    self.events.put(('check_error', (gen, 'Сеть изменилась во время проверки')))
             except Exception as exc:
                 self.events.put(('check_error', (gen, str(exc))))
         threading.Thread(target=worker, daemon=True).start()
@@ -973,18 +1005,25 @@ class App(QMainWindow):
     def apply_checks(self, gen, results):
         if self.stale(gen):
             return
+        if self.network_context != network_key():
+            self.health_state = 'unverified'
+            self.busy = False
+            return
+        if getattr(self, '_installing', False):
+            return
         self.busy = False
         self.last_check = time.strftime('%H:%M:%S')
         names = self.active_targets
         online = any(value[0] for value in results.values())
-        healthy = bool(names) and all(results.get(name, (False,))[0] for name in names)
+        healthy = verified(names, results)
+        self.health_state = assessment(names, results)
         self.log('Проверка: '+', '.join(k+(' OK' if v[0] else ' FAIL: '+v[2]) for k, v in results.items()))
         self.show_health(results)
         if self.state == 'connected':
-            stage = ('Подключено' if healthy else 'Движок работает, проверка не пройдена')+' · '+self.selected
+            stage = evidence_text(names, results)+' · '+self.selected
             self.stage = stage
-        if self.auto and self.engine.running() and self.state == 'connected':
-            self.handle_rotation(self.rotation.observe(online, healthy))
+        if self.selection_auto and self.engine.running() and self.state == 'connected':
+            self.handle_rotation(self.rotation.observe(online, eligible(names, results)))
         self.next_check = time.monotonic()+self.interval_seconds()
         self.refresh()
 
@@ -997,7 +1036,10 @@ class App(QMainWindow):
                 combo.blockSignals(True)
                 combo.setCurrentText(action)
                 combo.blockSignals(False)
+            # One bounded recovery sweep, no recursive reset of Rotation.
             self.start(auto=True)
+        elif action == 'exhausted':
+            self.set_stage('Подходящая стратегия не найдена')
         elif action == 'offline':
             self.set_stage('Нет ответов контрольных узлов. Ожидание сети; перебор приостановлен.')
 
@@ -1014,7 +1056,8 @@ class App(QMainWindow):
             if not (self.active_targets or self.check_targets()).get(name):
                 text, color = 'Отключено', C.MUTED
             elif value and value[0]:
-                text, color = 'Доступен · '+str(value[1])+' мс', C.OK
+                text, color = (('HTTPS · видео не проверено', C.WARN) if name == 'YouTube'
+                               else ('HTTPS · '+str(value[1])+' мс', C.OK))
             else:
                 text, color = 'Нет ответа', C.WARN
             health = self.health[name]
@@ -1678,12 +1721,20 @@ class App(QMainWindow):
 
     def setup_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
+            self._tray_retries = getattr(self, '_tray_retries', 0) + 1
+            if self._tray_retries <= 60:
+                QTimer.singleShot(1000, self.setup_tray)
+            elif '--tray' in sys.argv and not self.isVisible():
+                self.show()
             return
+        if self.tray is not None:
+            self.tray.hide()
+            self.tray.deleteLater()
         self.tray = QSystemTrayIcon(self.windowIcon(), self)
         self.tray.setToolTip('zapret GUI — работает в фоне')
         menu = QMenu(self)
         menu.addAction('Открыть zapret GUI', self.restore_window)
-        menu.addAction('Выйти — оставить zapret включённым', self.request_exit)
+        menu.addAction('Выйти — оставить zapret и TG включёнными', self.request_exit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self.on_tray_activated)
         self.tray.show()
@@ -1702,27 +1753,12 @@ class App(QMainWindow):
         self.pending_strategy = None
         self.close()
 
-    def check_app_update(self):
-        if getattr(self, '_update_busy', False):
-            return
-        self._update_busy = True
-        self.update_button.setEnabled(False)
-        self.update_note.setText('Проверка обновлений…')
-        def worker():
-            try:
-                from app_updates import latest_release
-                result = latest_release(C.VERSION)
-                self.events.put(('app_update', result))
-            except Exception as exc:
-                self.events.put(('app_update_error', str(exc)))
-        threading.Thread(target=worker, daemon=True).start()
-
     def closeEvent(self, event):
         if self.tray is not None and not self.exit_requested:
             self.hide()
             event.ignore()
             return
-        if self.feature_busy:
+        if self.feature_busy or self.tg_busy:
             self.closing = True
             event.ignore()
             return
@@ -1867,11 +1903,14 @@ QToolTip {{ background: {C.CARD}; color: {C.TEXT}; border: 1px solid {C.LINE}; }
 
 
 def main():
+    app = QApplication.instance() or QApplication(sys.argv)
+    from single_instance import SingleInstance, notify_existing
+    if notify_existing():
+        return 0
     from startup_admin import ensure_admin
     if not ensure_admin():
         return 0
-    app = QApplication(sys.argv)
-    from single_instance import SingleInstance
+    _rp.bootstrap_bundled()
     instance = SingleInstance()
     if not instance.acquire():
         return 0
@@ -1881,11 +1920,10 @@ def main():
     app.setFont(font)
     window = App()
     instance.listen(window.restore_window)
-    # Автозапуск (--tray): поднимаемся сразу в трей, окно не открываем.
-    # Без трея прятать окно нельзя — приложение стало бы «невидимым».
-    if '--tray' not in sys.argv or window.tray is None:
+    # Автозапуск (--tray): остаёмся в трее, окно не открываем.
+    if '--tray' not in sys.argv:
         window.show()
-    QTimer.singleShot(3000, window.check_app_update)
+    QTimer.singleShot(3000, window.automatic_app_update)
     QTimer.singleShot(150, window.apply_titlebar_theme)
     app.exec()
     return 0

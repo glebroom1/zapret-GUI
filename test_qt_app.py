@@ -286,7 +286,7 @@ class TestAppCore(QtCase):
         app.active_targets = {'YouTube': 'x'}
         app.check_targets = lambda: {'YouTube': 'x'}
         app.show_health({'YouTube': (True, 12, ''), 'Discord': (True, 5, '')})
-        self.assertIn('Доступен', app.health['YouTube'].text())
+        self.assertIn('видео не проверено', app.health['YouTube'].text())
         app.show_health({'YouTube': (False, None, 'x')})
         self.assertEqual(app.health['YouTube'].text(), 'Нет ответа')
         app.close()
@@ -323,7 +323,7 @@ class TestAppCore(QtCase):
                 service = next(replies)
                 emit('probe', service)
                 if all(value[0] for value in service.values()):
-                    return 'connected', profile, service
+                    return 'provisional', profile, service
             return 'exhausted', profiles[-1], {}
 
         app.paths = core.strategies(root)
@@ -337,7 +337,7 @@ class TestAppCore(QtCase):
             self.assertEqual(app.state, 'connecting')
             self.drain(app, cycles=10)
             self.assertEqual(app.state, 'connected')
-            self.assertIn('Подключено', app.stage)
+            self.assertIn('Стратегия выбрана по HTTPS · видео не проверено', app.stage)
             self.assertIn('general2', app.selected)   # вторая попытка после тихой первой
         finally:
             app_qt.connect_profiles = original
@@ -475,6 +475,9 @@ class TestZipImportFlow(QtCase):
         app = self.make_confirming_app(QMessageBox.Yes)
         self.offer(app)
         self.drain(app, cycles=10)
+        deadline = time.monotonic() + 3
+        while app.feature_busy and time.monotonic() < deadline:
+            self.drain(app, cycles=1)
         install = self.dest/'zapret-incoming'
         self.assertTrue((install/'bin/winws.exe').is_file(), 'ZIP установлен в dest')
         self.assertEqual(app.root_path, install, 'сборка после импорта — активная')
@@ -553,7 +556,7 @@ class TestImportCard07(QtCase):
     def test_version_label(self):
         from PySide6.QtWidgets import QLabel
         app = self.make_app()
-        self.assertEqual(C.VERSION, '0.8')
+        self.assertEqual(C.VERSION, '0.9.0')
         self.assertIn(C.VERSION, [w.text() for w in app.findChildren(QLabel)])
         app.close()
 
@@ -689,6 +692,7 @@ class TestHistoryIntegration(QtCase):
         import app_qt
         self.write_settings(strategy=self.paths[0].stem)
         app = self.make_app()
+        app.check_targets = lambda: {"Discord": core.TARGETS["Discord"]}
 
         class FakeEngine:
             session_log = None
@@ -726,7 +730,7 @@ class TestHistoryIntegration(QtCase):
         history = json.loads((app.DATA/'strategy-history.json').read_text(encoding='utf-8'))
         self.assertEqual(len(history), 1)
         self.assertEqual(next(iter(history.values()))['strategy'], self.paths[0].stem)
-        self.assertEqual(app.history.order(list(reversed(self.paths)), self.targets)[0],
+        self.assertEqual(app.history.order(list(reversed(self.paths)), app.check_targets())[0],
                          self.paths[0], 'записанный удачный поднимается в порядке перебора')
         self.assertEqual(app.strategy_combo.currentText(), self.paths[0].stem)
         app.close()
@@ -775,6 +779,7 @@ class TestHistoryIntegration(QtCase):
         import app_qt
         self.write_settings(strategy=self.paths[0].stem)
         app = self.make_app()
+        app.check_targets = lambda: {"Discord": core.TARGETS["Discord"]}
 
         class FakeEngine:
             session_log = None

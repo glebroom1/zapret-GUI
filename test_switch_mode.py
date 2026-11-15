@@ -50,7 +50,8 @@ class SwitchMode(unittest.TestCase):
         window.start.assert_called_once_with(auto=False)
 
     def test_stopped_event_starts_latest_queued_strategy(self):
-        window = Mock(closing=False, state='stopping', pending_strategy='general3')
+        window = Mock(closing=False, state='stopping', pending_strategy='general3', next_network_poll=float('inf'))
+        window.stale.return_value = False
         window.events = queue.Queue()
         window.events.put(('stopped', 2))
         App.tick(window)
@@ -59,7 +60,7 @@ class SwitchMode(unittest.TestCase):
         window.start.assert_called_once_with(auto=False)
 
     def test_hidden_window_keeps_scheduling_checks(self):
-        window = Mock(state='connected', busy=False, next_check=0)
+        window = Mock(state='connected', busy=False, next_check=0, next_network_poll=float('inf'))
         window.engine.running.return_value = True
         window.events = queue.Queue()
         window.isVisible.return_value = False

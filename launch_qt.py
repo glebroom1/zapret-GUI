@@ -73,6 +73,15 @@ def smoke() -> int:
                 result['errors'].append('ошибка внутренней проверки настроек')
     except Exception as exc:
         result['errors'].append(f'features: {exc!r}')
+    try:
+        from telegram_worker import import_backend
+        backend = import_backend()
+        from telegram_proxy import protect, unprotect
+        sample = '0' * 32
+        result['telegram'] = dict(backend=backend.__name__,
+                                  protected_config=unprotect(protect(sample)) == sample)
+    except Exception as exc:
+        result['errors'].append(f'telegram: {exc!r}')
     # Импорт ZIP: синтетический архив, перенос пользовательских файлов, отказ паразитам.
     try:
         import tempfile
@@ -156,14 +165,22 @@ def smoke() -> int:
 
 def main() -> int:
     argv = sys.argv[1:]
+    if '--apply-update' in argv:
+        from self_update import apply_update
+        try:
+            return apply_update(argv[argv.index('--apply-update') + 1])
+        except (IndexError, ValueError):
+            return 2
+    if '--telegram-worker' in argv:
+        from telegram_worker import main as worker_main
+        try:
+            directory = argv[argv.index('--telegram-data') + 1]
+        except (ValueError, IndexError):
+            return 2
+        return worker_main(directory)
     if '--smoke' in argv:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         return smoke()
-    from startup_admin import ensure_admin
-    if not ensure_admin():
-        return 0
-    import runtime_paths as rp
-    rp.bootstrap_bundled()
     import app_qt
     return app_qt.main()
 

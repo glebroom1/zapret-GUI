@@ -12,5 +12,15 @@
 | PyInstaller 6.22.0 | GPL-2.0-or-later с исключением для bootloader | https://github.com/pyinstaller/pyinstaller/tree/v6.22.0 |
 | zlib | zlib | https://zlib.net/ |
 | psutil 7.2.2 | BSD-3-Clause | https://github.com/giampaolo/psutil/tree/release-7.2.2 |
+| tg-ws-proxy, commit 6690b788432fd0f59b0f38e228494bcd6bede1ca | MIT | https://github.com/Flowseal/tg-ws-proxy/tree/6690b788432fd0f59b0f38e228494bcd6bede1ca |
+| cryptography 46.0.5 | Apache-2.0 или BSD-3-Clause; включённые уведомления | https://github.com/pyca/cryptography |
+| certifi 2026.10.23 | MPL-2.0 | https://github.com/certifi/python-certifi |
+| httpx 0.28.1 / httpcore 1.0.9 | BSD-3-Clause | https://github.com/encode/httpx ; https://github.com/encode/httpcore |
+| h2 4.4.1 / hpack 4.2.0 / hyperframe 6.1.0 | MIT | https://github.com/python-hyper |
+| anyio 4.15.1 / cffi 2.1.1 | MIT | https://github.com/agronholm/anyio ; https://foss.heptapod.net/pypy/cffi |
+| idna 3.20 / pycparser 3.12 | BSD-3-Clause | https://github.com/kjd/idna ; https://github.com/eliben/pycparser |
+
+Тексты лицензий зависимостей Telegram: `licenses/telegram-dependencies/`.
+Копия ядра tg-ws-proxy и точная версия находятся в `vendor/tg_ws_proxy/`.
 
 Архивы исходников LGPL-компонентов доступны по ссылкам в [SOURCES.md](SOURCES.md); там же SHA-256, порядок замены библиотек и пересборки. Обратная разработка для отладки изменений LGPL-компонентов разрешается.

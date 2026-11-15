@@ -2,6 +2,10 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import tempfile
 import unittest
+import threading
+import time
+import subprocess
+import sys
 from unittest.mock import Mock, patch
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
@@ -37,9 +41,21 @@ class Lifecycle(unittest.TestCase):
             restored = Mock()
             first.listen(restored)
             second = SingleInstance()
-            self.assertFalse(second.acquire())
-            for _ in range(10):
+            code = '''
+from PySide6.QtCore import QCoreApplication
+from unittest.mock import patch
+import sys
+from single_instance import SingleInstance
+app = QCoreApplication([])
+with patch('single_instance.QStandardPaths.writableLocation', return_value=sys.argv[1]):
+    sys.exit(1 if SingleInstance().acquire() else 0)
+'''
+            client = subprocess.Popen([sys.executable, '-c', code, folder])
+            deadline = time.monotonic() + 3
+            while (client.poll() is None or not restored.called) and time.monotonic() < deadline:
                 QCoreApplication.processEvents()
+                time.sleep(.005)
+            self.assertEqual(client.wait(timeout=3), 0)
             restored.assert_called_once()
             first.server.close()
             first.lock.unlock()
@@ -62,6 +78,7 @@ class Lifecycle(unittest.TestCase):
         window = Mock()
         window.exit_requested = True
         window.feature_busy = False
+        window.tg_busy = False
         window.engine.running.return_value = True
         window.operation_active = False
         window.state = 'connected'
@@ -77,6 +94,7 @@ class Lifecycle(unittest.TestCase):
         window.tray = None
         window.exit_requested = False
         window.feature_busy = False
+        window.tg_busy = False
         window.engine.running.return_value = False
         window.operation_active = False
         window.state = 'idle'

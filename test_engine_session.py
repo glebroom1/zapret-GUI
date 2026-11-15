@@ -16,7 +16,7 @@ class SessionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root/'bin').mkdir()
         self.exe = self.root/'bin/winws.exe'
-        shutil.copy2(sys.executable, self.exe)
+        shutil.copy2(getattr(sys, '_base_executable', sys.executable), self.exe)
         self.strategy = self.root/'general.bat'
         self.strategy.write_text('test')
         self.child = subprocess.Popen([str(self.exe), '-c', 'import time; time.sleep(60)'],
@@ -64,9 +64,19 @@ import subprocess, sys
 from pathlib import Path
 from core import INDEPENDENT_ENGINE
 from engine_session import record
-child = subprocess.Popen([sys.argv[1], '-c', 'import time; time.sleep(60)'],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, creationflags=INDEPENDENT_ENGINE)
+flags = INDEPENDENT_ENGINE
+try:
+    child = subprocess.Popen([sys.argv[1], '-c', 'import time; time.sleep(60)'],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+except OSError as exc:
+    if getattr(exc, 'winerror', None) == 5:
+        flags = INDEPENDENT_ENGINE & ~getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0)
+        child = subprocess.Popen([sys.argv[1], '-c', 'import time; time.sleep(60)'],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=flags)
+    else:
+        raise
 record(Path(sys.argv[2]), child, Path(sys.argv[3]))
 '''
         other = self.root/'other.json'

@@ -1,3 +1,4 @@
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,7 +67,7 @@ class HistoryTests(unittest.TestCase):
             a, b = root/'a.bat', root/'b.bat'
             a.write_text('a'); b.write_text('b')
             history = StrategyHistory(root/'history.json')
-            history.records = {history.key(a, {}): {'last_success': 1},
-                               history.key(b, {}): {'last_success': 2.5}}
+            history.records = {history.key(a, {}): {'last_success': int(time.time())-10},
+                               history.key(b, {}): {'last_success': time.time()-1}}
             self.assertEqual(history.order([a, b], {}), [b, a])
             self.assertEqual(history.preferred([a, b], {}), b)

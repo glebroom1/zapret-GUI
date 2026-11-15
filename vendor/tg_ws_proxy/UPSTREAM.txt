@@ -1,0 +1,8 @@
+Flowseal/tg-ws-proxy (MIT)
+https://github.com/Flowseal/tg-ws-proxy
+Pinned commit: 6690b788432fd0f59b0f38e228494bcd6bede1ca
+The proxy/ and utils/ files are copied unchanged from this commit.
+Desktop tray code is not used. The host adds lifecycle/control, per-socket routing,
+protected settings, redacted logs and GUI. Hostname verification stays enabled,
+including for the upstream optional fronting context. The shipped CF pool is
+pinned; no automatic fetching of the domain list is started by the host.

@@ -10,7 +10,8 @@ from app import App
 GOOD = {'YouTube': (True, 10, ''), 'Discord': (True, 10, ''), 'Control': (True, 10, '')}
 BAD = {'YouTube': (False, None, 'timeout'), 'Discord': (False, None, 'timeout'), 'Control': (True, 10, '')}
 OFFLINE = {name: (False, None, 'timeout') for name in GOOD}
-TARGETS = {'YouTube': 'test', 'Discord': 'test'}
+# Selection mechanics use HTTPS-only Discord; YouTube partial is tested separately.
+TARGETS = {'Discord': 'test'}
 PROFILES = [Path('general.bat'), Path('general (ALT).bat'), Path('general (ALT2).bat')]
 
 class Engine:
@@ -36,7 +37,7 @@ class SelectionTests(unittest.TestCase):
         with patch('core.probe', return_value=(False, None, 'TLS failure')), patch('core.probe_tcp', return_value=(True, 1, '')):
             results = check_network(TARGETS)
         self.assertTrue(results['Internet TCP'][0])
-        self.assertFalse(results['YouTube'][0])
+        self.assertFalse(results['Discord'][0])
 
     def run_selection(self, replies, outcomes=None, cancel=None, emit=None):
         engine = Engine(outcomes)

@@ -1,6 +1,7 @@
 """Zapret Desk engine. No shell execution of strategy files."""
 from __future__ import annotations
-import concurrent.futures
+from connection_health import DaemonPool, SingleProbe, network_key, verified, eligible
+_probe_runner = SingleProbe()
 import ctypes
 from ctypes import wintypes
 import http.client
@@ -35,19 +36,24 @@ class ForeignEngineError(RuntimeError):
     pass
 
 def connect_profiles(engine, profiles, targets, cancel, emit, grace=4, offline_delay=15,
-                     check=None, keep_running=False):
+                     check=None, keep_running=False, budget=300):
     """One bounded sweep. Network outage pauses on the current ready profile.
 
     No GUI access; emit(kind, payload) and cancellation belong to the caller.
-    Returns (status, profile, results). 'connected' and 'running' keep the engine.
+    Returns (status, profile, results). 'connected', 'provisional' and 'running'
+    keep the engine. Provisional selection is HTTPS eligibility, not video proof.
     keep_running separates engine activation from diagnostic success for the GUI.
     """
-    check = check or check_network
+    check = check or (lambda targets: bounded_check(targets, cancel))
+    context = network_key()
+    deadline = time.monotonic() + budget
     last_results = {}
     current = None
     success = False
     try:
         for number, current in enumerate(profiles, 1):
+            if time.monotonic() >= deadline:
+                return 'limited', current, last_results
             if cancel.is_set():
                 return 'cancelled', current, last_results
             emit('attempt', (number, len(profiles), current.stem))
@@ -63,14 +69,25 @@ def connect_profiles(engine, profiles, targets, cancel, emit, grace=4, offline_d
                 while not cancel.is_set():
                     if not engine.running():
                         raise RuntimeError('Движок завершился после запуска')
+                    if time.monotonic() >= deadline:
+                        return 'limited', current, last_results
                     last_results = check(targets)
+                    if context != network_key():
+                        return 'network_changed', current, last_results
                     if cancel.is_set():
                         return 'cancelled', current, last_results
                     emit('probe', last_results)
-                    healthy = bool(targets) and all(last_results.get(n, (False,))[0] for n in targets)
+                    if cancel.is_set():
+                        return 'cancelled', current, last_results
+                    if time.monotonic() >= deadline:
+                        return 'limited', current, last_results
+                    healthy = verified(targets, last_results)
                     if healthy and engine.running() and engine.ready:
                         success = True
                         return 'connected', current, last_results
+                    if eligible(targets, last_results) and engine.running() and engine.ready:
+                        success = True
+                        return 'provisional', current, last_results
                     if keep_running and engine.running() and engine.ready and (
                             number == len(profiles) or not any(v[0] for v in last_results.values())):
                         success = True
@@ -80,6 +97,10 @@ def connect_profiles(engine, profiles, targets, cancel, emit, grace=4, offline_d
                     emit('offline', 'Нет ответов ни от сервисов, ни от контрольных узлов. Ожидание сети…')
                     if cancel.wait(offline_delay):
                         return 'cancelled', current, last_results
+            except InterruptedError:
+                return 'cancelled', current, last_results
+            except TimeoutError:
+                return 'limited', current, last_results
             except (PermissionError, ForeignEngineError, ProcessInspectionError):
                 raise
             except Exception as exc:
@@ -300,7 +321,7 @@ def _dns_recovery(urls, results):
     hosts = {name: urllib.parse.urlparse(url).netloc for name, url in urls.items()}
     doomed = [name for name in TARGETS if name in urls and
               not results[name][0] and 'getaddrinfo' in results[name][2]]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(doomed), 1)) as pool:
+    with DaemonPool(max_workers=max(len(doomed), 1)) as pool:
         jobs = {name: pool.submit(probe_via_doh, hosts[name], urls[name]) for name in doomed}
         for name, job in jobs.items():
             ok, ms, note = job.result()
@@ -326,9 +347,13 @@ def _dns_recovery(urls, results):
     return notes
 
 
+def bounded_check(targets=None, cancel=None):
+    return _probe_runner.run(check_network, targets, cancel)
+
+
 def check_network(targets=None):
     urls = {**(targets or TARGETS), **CONTROLS}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as pool:
+    with DaemonPool(max_workers=len(urls)) as pool:
         futures = {name: pool.submit(probe, url) for name, url in urls.items()}
         results = {name: f.result() for name, f in futures.items()}
         if not any(value[0] for value in results.values()):
@@ -439,6 +464,16 @@ class Engine:
             self.process = subprocess.Popen([str(strategy.parent/'bin/winws.exe'), *args],
                 cwd=str(strategy.parent/'bin'), stdin=subprocess.DEVNULL,
                 stdout=self.output, stderr=subprocess.STDOUT, creationflags=INDEPENDENT_ENGINE)
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 5 and (INDEPENDENT_ENGINE & getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0)):
+                fallback_flags = INDEPENDENT_ENGINE & ~getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0)
+                self.process = subprocess.Popen([str(strategy.parent/'bin/winws.exe'), *args],
+                    cwd=str(strategy.parent/'bin'), stdin=subprocess.DEVNULL,
+                    stdout=self.output, stderr=subprocess.STDOUT, creationflags=fallback_flags)
+            else:
+                self.output.close()
+                self.output = None
+                raise
         except Exception:
             self.output.close()
             self.output = None
@@ -500,6 +535,7 @@ class Engine:
         self.process = None
 
     def stop(self):
+        stopped_pid = self.process.pid if self.process else None
         if self.running():
             self.process.terminate()
             try:
@@ -508,6 +544,13 @@ class Engine:
                 self.process.kill()
                 self.process.wait(timeout=5)
             self.log('Процесс GUI остановлен')
+        if stopped_pid is not None and self.session_file:
+            try:
+                state = json.loads(self.session_file.read_text(encoding='utf-8'))
+                if state.get('pid') == stopped_pid:
+                    self.session_file.unlink(missing_ok=True)
+            except (OSError, ValueError):
+                pass
         self.process = None
         if self.output:
             self.output.close()

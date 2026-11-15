@@ -1,4 +1,5 @@
 """Persistent successful strategies, scoped to build path, strategy contents and targets."""
+from connection_health import CRITERION, network_key
 import hashlib
 import json
 import math
@@ -34,17 +35,20 @@ class StrategyHistory:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             return None
-        payload = [str(path.resolve()).casefold(), digest, sorted(targets.items())]
+        engine = path.parent/'bin/winws.exe'
+        engine_digest = hashlib.sha256(engine.read_bytes()).hexdigest() if engine.is_file() else ''
+        payload = [CRITERION, network_key(), engine_digest, str(path.resolve()).casefold(), digest, sorted(targets.items())]
         return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
     def order(self, paths, targets):
         def score(path):
-            return success_timestamp(self.records.get(self.key(path, targets)))
+            stamp = success_timestamp(self.records.get(self.key(path, targets)))
+            return stamp if 0 <= time.time()-stamp <= 86400 else 0
         return sorted(paths, key=score, reverse=True)
 
     def preferred(self, paths, targets):
         ordered = self.order(paths, targets)
-        if ordered and success_timestamp(self.records.get(self.key(ordered[0], targets))) > 0:
+        if ordered and 0 <= time.time()-success_timestamp(self.records.get(self.key(ordered[0], targets))) <= 86400:
             return ordered[0]
         return None
 
